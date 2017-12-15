@@ -1,0 +1,207 @@
+#!/bin/sh
+# -*- Mode: sh; sh-indentation: 2; indent-tabs-mode: nil; sh-basic-offset: 2; -*-
+# vim:ft=zsh:sw=2:sts=2:et
+# This file is double-licensed under GPLv3 and MIT (see LICENSE file)
+
+#
+# /bin/sh stage, load configuration to obtain $zsh_control_bin
+#
+
+if [[ -f /usr/local/share/zshelldoc/zsd.config ]]; then
+  . /usr/local/share/zshelldoc/zsd.config
+elif [[ -f /usr/share/zshelldoc/zsd.config ]]; then
+  . /usr/share/zshelldoc/zsd.config
+elif [[ -f /opt/share/zshelldoc/zsd.config ]]; then
+  . /opt/share/zshelldoc/zsd.config
+fi
+
+[ -z "$zsh_control_bin" ] && zsh_control_bin="zsh"
+
+if [ -z "$ZSH_VERSION" ]; then
+  args="\"$0\""
+  for arg; do
+    args="$args \"$arg\""
+  done
+  exec /usr/bin/env "$zsh_control_bin" -f -c "source $args"
+fi
+
+local -A colors fg bg fg_bold bg_bold
+autoload colors
+colors
+
+setopt extendedglob typesetsilent
+
+### Functions ###
+
+usage() {
+  print "$fg[green]Usage:$reset_color zsd [-h/--help] [-v/--verbose] [-q/--quiet] [-n/--noansi] [--cignore <pattern>] $fg_bold[magenta]{file1} [file2] ...$reset_color"
+  print "The files will be processed and their documentation will be generated"
+  print "in subdirectory \`zsdoc' (with meta-data in subdirectory \`data')."
+  print "Supported are Bash and Zsh scripts."
+  print
+  print "$fg[green]Options:$reset_color"
+  print -- "$fg[magenta]-h/--help$reset_color      Usage information"
+  print -- "$fg[magenta]-v/--verbose$reset_color   More verbose operation-status output"
+  print -- "$fg[magenta]-q/--quiet$reset_color     No status messages"
+  print -- "$fg[magenta]-n/--noansi$reset_color    No colors in terminal output"
+  print -- "$fg[magenta]--cignore$reset_color      Specify which comment lines should be ignored"
+  print -- "$fg[magenta]-f/--fpath$reset_color     Paths separated by : pointing to directories with functions"
+  print
+  print -- "Example --cignore options:"
+  print -- "--cignore '\\#*FUNCTION:*{{{*'                 - ignore comments like: $fg[green]# FUNCTION: usage {{{$reset_color"
+  print -- "--cignore '(\\#*FUNCTION:*{{{*|\\#*FUN:*{{{*)'   - also ignore comments like: $fg[green]# FUN: usage {{{$reset_color"
+}
+
+# -*- Mode: sh; sh-indentation: 2; indent-tabs-mode: nil; sh-basic-offset: 2; -*-
+# vim:ft=zsh:sw=2:sts=2:et
+# This file is double-licensed under GPLv3 and MIT (see LICENSE file)
+
+### Options ###
+
+local OPT_HELP OPT_VERBOSE OPT_QUIET OPT_NOANSI OPT_CIGNORE OPT_FPATH
+local -A opthash
+zparseopts -E -D -A opthash h -help v -verbose q -quiet n -noansi -cignore: f: -fpath: || { print "Improper options given, see help (-h/--help)"; return 1; }
+
+(( ${+opthash[-h]} + ${+opthash[--help]} ))     && OPT_HELP="-h"
+(( ${+opthash[-v]} + ${+opthash[--verbose]} ))  && OPT_VERBOSE="-v"
+(( ${+opthash[-q]} + ${+opthash[--quiet]} ))    && OPT_QUIET="-q"
+(( ${+opthash[-n]} + ${+opthash[--noansi]} ))   && OPT_NOANSI="-n"
+(( ${+opthash[--cignore]} ))                    && OPT_CIGNORE="${opthash[--cignore]}"
+(( ${+opthash[-f]} ))                           && OPT_FPATH="${opthash[-f]}"
+(( ${+opthash[--fpath]} ))                      && OPT_FPATH="${opthash[--fpath]}"
+
+[[ -n "$OPT_NOANSI" ]] && { colors=(); fg=(); bg=(); fg_bold=(); bg_bold=(); reset_color=""; }
+
+[[ -z "$OPT_QUIET" ]] && echo "Zsh control binary is: \`$zsh_control_bin'"
+
+### Code ###
+
+# Script with path to it, if it works
+local ZERO="${(%):-%N}"
+
+if [[ "$ZERO" != */* ]]; then
+  if [[ -x /usr/local/bin/zsd ]]; then
+    ZERO="/usr/local/bin/zsd"
+  elif [[ -x /usr/bin/zsd ]]; then
+    ZERO="/usr/bin/zsd"
+  elif [[ -x /opt/bin/zsd ]]; then
+    ZERO="/opt/bin/zsd"
+  fi
+fi
+
+local TRANSFORM="${ZERO:h}/zsd-transform" DETECT="${ZERO:h}/zsd-detect" TOADOC="${ZERO:h}/zsd-to-adoc"
+
+if [[ -n "$OPT_HELP" ]]; then
+  usage
+  return 0
+fi
+
+if [[ "$#" -le 0 || "$*" = [[:space:]]## ]]; then
+  print "Argument needed, see help (-h/--help)"
+  return 1
+fi
+
+### FPATH ###
+
+if [[ -n "$OPT_FPATH" ]]; then
+  export FPATH="$OPT_FPATH:$FPATH"
+fi
+
+### First pass ###
+
+[[ -n "$OPT_VERBOSE" ]] && {
+  print
+  print "$fg[cyan]= zsd starts first-pass processing (function and script extraction)$reset_color"
+  local -a storage
+  storage=( zsdoc/data/functions/**/*(N) )
+  print "$fg[cyan]Number of functions already generated: ${#storage}"
+  storage=( zsdoc/data/functions/*(N) )
+  print "$fg[cyan]Number of scripts already processed: ${#storage}"
+}
+
+### TRANSFORM ###
+
+local fname
+integer ret=0 count=0
+
+for fname; do
+  (( count ++ ))
+
+  [[ -z "$fname" ]] && {
+    [[ -z "$OPT_QUIET" || -n "$OPT_VERBOSE" ]] && print "$fg[magenta]Skipping empty file name$reset_color"
+    continue
+  }
+
+  if [[ ! -f "$fname" ]]; then
+    [[ -z "$OPT_QUIET" || -n "$OPT_VERBOSE" ]] && print "$fg[magenta]File \`$fname' doesn't exist, skipping it (see help, with -h/--help option)$reset_color"
+    ret=1
+    continue
+  fi
+
+  if [[ ! -r "$fname" ]]; then
+    [[ -z "$OPT_QUIET" || -n "$OPT_VERBOSE" ]] && print "$fg[magenta]File \`$fname' is unreadable, skipping it (see help, with -h/--help option)$reset_color"
+    ret=1
+    continue
+  fi
+
+  /usr/bin/env "$zsh_control_bin" "$TRANSFORM" $OPT_VERBOSE $OPT_QUIET $OPT_NOANSI "$fname"
+done
+
+### Second pass ###
+
+[[ -n "$OPT_VERBOSE" ]] && {
+  print
+  print "$fg[cyan]= zsd starts second-pass processing (extraction of call-trees and comments)$reset_color"
+  local -a storage
+  storage=( zsdoc/data/functions/**/*(N) )
+  print "$fg[cyan]Total number of functions generated: ${#storage}"
+  storage=( zsdoc/data/functions/*(N) )
+  print "$fg[cyan]Total number of scripts processed: ${#storage}"
+}
+
+### Detect ###
+
+for fname; do
+  [[ -z "$fname" ]] && continue
+
+  if [[ ! -f "$fname" ]]; then
+    ret=1
+    continue
+  fi
+
+  if [[ ! -r "$fname" ]]; then
+    ret=1
+    continue
+  fi
+
+  local cignore="" ciarg=""
+  [[ -n "$OPT_CIGNORE" ]] && { cignore="--cignore" ciarg="$OPT_CIGNORE"; }
+
+  /usr/bin/env "$zsh_control_bin" "$DETECT" $OPT_VERBOSE $OPT_QUIET $OPT_NOANSI $cignore $ciarg "$fname"
+done
+
+### ASCIIDOC ###
+
+[[ -n "$OPT_VERBOSE" ]] && {
+  print
+  print "$fg[cyan]= zsd starts third-pass processing (generation of asciidoc documents)$reset_color"
+}
+
+for fname; do
+  [[ -z "$fname" ]] && continue
+
+  if [[ ! -f "$fname" ]]; then
+    ret=1
+    continue
+  fi
+
+  if [[ ! -r "$fname" ]]; then
+    ret=1
+    continue
+  fi
+
+  /usr/bin/env "$zsh_control_bin" "$TOADOC" $OPT_VERBOSE $OPT_QUIET $OPT_NOANSI "$fname"
+done
+
+
+return $ret
