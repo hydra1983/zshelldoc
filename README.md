@@ -65,6 +65,19 @@ cp zsd.config ~/opt/local/share/zshelldoc
 Other available `make` variables are: `INSTALL` (to customize install command),
 `BIN_DIR`, `SHARE_DIR`, `DOC_DIR`.
 
+## Bpkg
+
+```bash
+curl -Lo- "https://coding.net/u/hydra1983/p/bpkg/git/raw/master/setup.sh" | \
+    REMOTE="https://git.coding.net/hydra1983/bpkg.git" bash
+
+# Install to $(pwd)/deps/bin
+bpkg install https://github.com/zdharma/zshelldoc -b
+
+# Install to /usr/local/bin
+bpkg install https://github.com/zdharma/zshelldoc -b -g
+```
+
 # Examples
 
 `Zshelldoc` highly motivates to document code, my other project `Zplugin` gained from this.
