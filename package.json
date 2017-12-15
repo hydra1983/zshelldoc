@@ -9,10 +9,10 @@
         "dist/bin/zsd-transform"
     ],
     "files": [
-        "dist/doc/zshelldoc/LICENSE",
-        "dist/doc/zshelldoc/NEWS",
-        "dist/doc/zshelldoc/README.md",
-        "dist/zshelldoc/zsd.config"
+        "dist/share/doc/zshelldoc/LICENSE",
+        "dist/share/doc/zshelldoc/NEWS",
+        "dist/share/doc/zshelldoc/README.md",
+        "dist/share/zshelldoc/zsd.config"
     ],
     "install": "make && make install"
 }
